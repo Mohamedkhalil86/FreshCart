@@ -12,8 +12,8 @@ import { FREE_SHIPPING_THRESHOLD, STANDARD_SHIPPING_FEE, getShippingFee } from "
 
 type CartItem = { productId: string; title: string; image: string; category: string; sku: string; price: number; count: number; inStock: boolean };
 type CartState = { id: string; items: CartItem[]; total: number };
-const API = (process.env.NEXT_PUBLIC_API_URL ?? "https://ecommerce.routemisr.com/api/v1").replace(/\/$/, "");
-const CART_API = (process.env.NEXT_PUBLIC_API_URL ?? "https://ecommerce.routemisr.com/api/v2").replace(/\/api\/v1\/?$/, "/api/v2").replace(/\/$/, "");
+const API_V1 = (process.env.NEXT_PUBLIC_API_URL ?? "https://ecommerce.routemisr.com/api/v1").replace(/\/$/, "");
+const CART_API = (process.env.NEXT_PUBLIC_API_V2_URL ?? (API_V1.endsWith("/api/v1") ? API_V1.replace(/\/api\/v1$/, "/api/v2") : "https://ecommerce.routemisr.com/api/v2")).replace(/\/$/, "");
 const obj = (v: unknown): Record<string, unknown> => typeof v === "object" && v !== null ? v as Record<string, unknown> : {};
 const emptyCart = (): CartState => ({ id: "", items: [], total: 0 });
 
@@ -65,8 +65,12 @@ function CartExperience() {
 
   const loadCart = useCallback(async () => {
     const token = readCartToken();
-    if (!token) { setCart(emptyCart()); setLoading(false); return; }
-    setLoading(true);
+    if (!token) {
+      await Promise.resolve();
+      setCart(emptyCart());
+      setLoading(false);
+      return;
+    }
     try {
       const response = await fetch(`${CART_API}/cart`, { headers: { token, "Cache-Control": "no-cache" }, cache: "no-store", signal: AbortSignal.timeout(8000) });
       if (response.status === 404) { setCart(emptyCart()); return; }
@@ -80,7 +84,7 @@ function CartExperience() {
     finally { setLoading(false); }
   }, [router]);
 
-  useEffect(() => { void loadCart(); }, [loadCart]);
+  useEffect(() => { void Promise.resolve().then(loadCart); }, [loadCart]);
   const itemCount = useMemo(() => cart.items.reduce((total, item) => total + item.count, 0), [cart.items]);
   const subtotal = useMemo(() => cart.items.reduce((total, item) => total + item.price * item.count, 0), [cart.items]);
   const shipping = getShippingFee(subtotal);
@@ -162,11 +166,16 @@ function CartExperience() {
     if (!token || !promo.trim()) { toast.error("Enter a promo code first"); return; }
     setBusy("promo");
     try {
-      const response = await fetch(`${API}/orders/applyCoupon`, { method: "POST", headers: { "Content-Type": "application/json", token }, body: JSON.stringify({ coupon: promo.trim() }), signal: AbortSignal.timeout(8000) });
+      const response = await fetch(`${CART_API}/cart/applyCoupon`, { method: "PUT", headers: { "Content-Type": "application/json", token }, body: JSON.stringify({ couponName: promo.trim() }), signal: AbortSignal.timeout(8000) });
       const result = obj(await readJson(response));
       if (!response.ok) throw new Error(typeof result.message === "string" ? result.message : "Invalid promo code");
       const data = obj(result.data);
-      const afterDiscount = typeof data.totalAfterDiscount === "number" ? data.totalAfterDiscount : typeof result.totalAfterDiscount === "number" ? result.totalAfterDiscount : null;
+      const returnedCart = obj(data.cart);
+      const afterDiscount = typeof data.totalAfterDiscount === "number"
+        ? data.totalAfterDiscount
+        : typeof returnedCart.totalAfterDiscount === "number"
+          ? returnedCart.totalAfterDiscount
+          : typeof result.totalAfterDiscount === "number" ? result.totalAfterDiscount : null;
       if (afterDiscount !== null) setPromoDiscount(Math.max(0, subtotal - afterDiscount));
       toast.success("Promo code applied");
     } catch (error) { toast.error(error instanceof Error ? error.message : "Could not apply promo code"); }
