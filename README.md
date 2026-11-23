@@ -9,7 +9,7 @@ A full-featured e-commerce web app built with Next.js and React.
 - Product catalog with categories, brands and search
 - Shopping cart with add/remove and quantity updates
 - Wishlist
-- Checkout with online payment
+- Simulated checkout flow using a test API (no real payments)
 - Fully responsive design
 
 ## Tech stack
